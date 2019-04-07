@@ -18,13 +18,23 @@ if [ -e "/sbin/apk" ]; then
     
     # Add ufw from the testing repository
     if [ -z "$(which ufw)" ]; then
-        sudo apk add ufw --allow-untrusted --repository http://dl-cdn.alpinelinux.org/alpine/edge/testing/ --no-cache
+        installed=$(sudo apk add --no-cache ufw 2>&1)
+        if [ -n "$(echo "$installed" | grep "ERROR")" ]; then
+            sudo apk add ufw --allow-untrusted --repository http://dl-cdn.alpinelinux.org/alpine/edge/testing/ --no-cache
+        else
+            echo "$installed"
+        fi
     fi
     # Add statically compiled dig. This is an ugly trick and we should install
     # dig from the package repository as soon as it has move into testing or
     # similar.
     if [ -z "$(which dig)" ]; then
-        curl -sSL https://github.com/sequenceiq/docker-alpine-dig/releases/download/v9.10.2/dig.tgz|tar -xzv -C /usr/bin/
+        installed=$(sudo apk add --no-cache dig 2>&1)
+        if [ -n "$(echo "$installed" | grep "ERROR")" ]; then
+            wget -q -O- https://github.com/sequenceiq/docker-alpine-dig/releases/download/v9.10.2/dig.tgz| sudo tar -xzv -C /usr/bin/
+        else
+            echo "$installed"
+        fi
     fi
 fi
 if [ -e "/usr/bin/apt-get" ]; then
@@ -32,6 +42,7 @@ if [ -e "/usr/bin/apt-get" ]; then
     DEBIAN_FRONTEND=noninteractive apt-get install -yq ufw dnsutils
 fi
 
+exit
 # Detect if we have ufw on the machine
 UFW=$(which ufw)
 
