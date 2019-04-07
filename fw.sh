@@ -42,7 +42,6 @@ if [ -e "/usr/bin/apt-get" ]; then
     DEBIAN_FRONTEND=noninteractive apt-get install -yq ufw dnsutils
 fi
 
-exit
 # Detect if we have ufw on the machine
 UFW=$(which ufw)
 
