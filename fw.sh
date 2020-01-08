@@ -53,11 +53,11 @@ if [ -n "$UFW" ]; then
     for opening in "$@"; do
         # Opening are in the form host.tld:80/tcp (where host.tld and tcp can be
         # omitted)
-        if [[ "$opening" =~ ^(([0-9a-zA-Z\.\-]+):)?([0-9]+(-[0-9]+)?)(/(udp|tcp)(/d)?)?$ ]]; then
-            host=${BASH_REMATCH[2]};
-            port=${BASH_REMATCH[3]};
-            proto=${BASH_REMATCH[6]};
-            dyn=${BASH_REMATCH[7]};
+        if echo "$opening" | grep -Eqo '^(([0-9a-zA-Z\.\-~]+):)?([0-9]+(-[0-9]+)?)(/(udp|tcp)(/d)?)?$'; then
+            host=$(echo "$opening" | sed -E 's;^(([0-9a-zA-Z\.\-~]+):)?([0-9]+(-[0-9]+)?)(/(udp|tcp)(/d)?)?$;\2;g')
+            port=$(echo "$opening" | sed -E 's;^(([0-9a-zA-Z\.\-~]+):)?([0-9]+(-[0-9]+)?)(/(udp|tcp)(/d)?)?$;\3;g')
+            proto=$(echo "$opening" | sed -E 's;^(([0-9a-zA-Z\.\-~]+):)?([0-9]+(-[0-9]+)?)(/(udp|tcp)(/d)?)?$;\6;g')
+            dyn=$(echo "$opening" | sed -E 's;^(([0-9a-zA-Z\.\-~]+):)?([0-9]+(-[0-9]+)?)(/(udp|tcp)(/d)?)?$;\7;g')
             if [ -z "$proto" ]; then
                 proto="tcp";
             fi
@@ -81,10 +81,12 @@ if [ -n "$UFW" ]; then
                         fi
                     fi
                 else
-                    # Convert dash separated port range to colon separated (which is
-                    # the format supported by UFW)
-                    port=$(echo ${port}|sed s/-/:/g)
-                    if [[ "$host" =~ ^[0-9\.]+$ ]]; then
+                    # Convert dash separated port range to colon separated
+                    # (which is the format supported by UFW) and & sign to / for
+                    # CIDR notation support.
+                    port=$(echo ${port}|sed 's/-/:/g')
+                    host=$(echo ${host}|sed 's|~|/|g')
+                    if [[ "$host" =~ ^[0-9\./]+$ ]]; then
                         ip=${host}
                     else
                         ip=$(dig +short $host | tail -n 1)
