@@ -19,7 +19,7 @@ if [ -e "/sbin/apk" ]; then
     # Add ufw from the testing repository
     if [ -z "$(which ufw)" ]; then
         installed=$(sudo apk add --no-cache ufw 2>&1)
-        if [ -n "$(echo "$installed" | grep "ERROR")" ]; then
+        if echo "$installed" | grep "ERROR"; then
             sudo apk add ufw --allow-untrusted --repository http://dl-cdn.alpinelinux.org/alpine/edge/testing/ --no-cache
         else
             echo "$installed"
@@ -30,7 +30,7 @@ if [ -e "/sbin/apk" ]; then
     # similar.
     if [ -z "$(which dig)" ]; then
         installed=$(sudo apk add --no-cache dig 2>&1)
-        if [ -n "$(echo "$installed" | grep "ERROR")" ]; then
+        if echo "$installed" | grep "ERROR"; then
             wget -q -O- https://github.com/sequenceiq/docker-alpine-dig/releases/download/v9.10.2/dig.tgz| sudo tar -xzv -C /usr/bin/
         else
             echo "$installed"
@@ -64,18 +64,20 @@ if [ -n "$UFW" ]; then
             if [ -z "$host" ]; then
                 # Convert dash separated port range to colon separated (which is
                 # the format supported by UFW)
-                port=$(echo ${port}|sed s/-/:/g)
+                port=${port//-/:}
                 echo "Opening firewall for all incoming traffic on port ${port}/${proto}"
-                ufw allow ${port}/${proto}
+                ufw allow "${port}/${proto}"
             else
                 if [ -n "$dyn" ]; then
                     if [ -f "$DYNEXE" ]; then
                         ADDED=$(grep "${proto}:${port}:${host}" "$DYNPATH")
                         echo "Opening firewall for incoming traffic on port ${port}/${proto} from ${host} (dynamic)"
                         if [ -z "$ADDED" ]; then
-                            echo "" >> $DYNPATH
-                            echo "# Rule automatically added by ${0##*/}" >> $DYNPATH
-                            echo "${proto}:${port}:${host}" >> $DYNPATH
+                            {
+                                echo "";
+                                echo "# Rule automatically added by ${0##*/}";
+                                echo "${proto}:${port}:${host}";
+                            }  >> "$DYNPATH"
                         else
                             echo "Skipping adding existing rule!"
                         fi
@@ -84,15 +86,15 @@ if [ -n "$UFW" ]; then
                     # Convert dash separated port range to colon separated
                     # (which is the format supported by UFW) and & sign to / for
                     # CIDR notation support.
-                    port=$(echo ${port}|sed 's/-/:/g')
-                    host=$(echo ${host}|sed 's|~|/|g')
+                    port=${port//-/:}
+                    host=${host//\~//}
                     if [[ "$host" =~ ^[0-9\./]+$ ]]; then
                         ip=${host}
                     else
-                        ip=$(dig +short $host | tail -n 1)
+                        ip=$(dig +short "$host" | tail -n 1)
                     fi
                     echo "Opening firewall for incoming traffic on port ${port}/${proto} from ${ip}"
-                    ufw allow proto $proto from $ip to any port $port
+                    ufw allow proto "$proto" from "$ip" to any port "$port"
                 fi
             fi
         else
@@ -107,6 +109,7 @@ if [ -n "$UFW" ]; then
         eval "$DYNEXE"
         
         if [ -e "/etc/os-release" ]; then
+            #shellcheck disable=SC1091
             . /etc/os-release
         else
             ID=""
