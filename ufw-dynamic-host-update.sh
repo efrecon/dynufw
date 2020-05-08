@@ -9,6 +9,7 @@ HOSTS_ALLOW=${HOSTS_ALLOW:-/etc/ufw-dynamic-hosts.allow}
 IPS_ALLOW=${IPS_ALLOW:-/var/run/ufw-dynamic-ips.allow}
 RESPIT=${RESPIT:-1}
 UFW=ufw
+FORCE=0;
 
 # Dynamic vars
 cmdname=$(basename "$(readlink -f "$0")")
@@ -28,6 +29,12 @@ Usage:
 
   where all dash-led options are as follows (long options can be followed by
   an equal sign):
+    -c | --config        Config file with : separated lines
+    --cache              Where to store the IP cache
+    -s | --server        Server to use for DNS resolutions, whenever possible
+    --ufw                Location of the ufw binary, defaults to ufw
+    --respit             Time to wait between rule changes, defaults to 1
+    --quiet              Be almost silence, only warnings.
     -v | --verbose       Be more verbose
     -h | --help          Print this help and exit.
 USAGE
@@ -61,6 +68,9 @@ while [ $# -gt 0 ]; do
             RESPIT=$2; shift 2;;
         --respit=*)
             RESPIT="${1#*=}"; shift 1;;
+
+        --force)
+            FORCE=1; shift;;
 
         -q | --quiet)
             QUIET=1; shift;;
@@ -113,9 +123,9 @@ add_rule() {
     _proto=$1
     _port=$2
     _ip=$3
-    if ! has_rule "$_proto" "$_port" "$ip"; then
+    if [ "$FORCE" = "1" ] || ! has_rule "$_proto" "$_port" "$ip"; then
         log "Allow access from ${_ip} to port ${_port} on ${_proto}"
-        info "${_ip}:${_port} ($proto) $($UFW allow proto "${_proto}" from "${_ip}" to any port "${_port}")"
+        info "${_ip}:${_port}/$proto: $($UFW allow proto "${_proto}" from "${_ip}" to any port "${_port}")"
     else
         log "rule already exists. nothing to do."
     fi
@@ -125,9 +135,9 @@ delete_rule() {
     _proto=$1
     _port=$2
     _ip=$3
-    if has_rule "$_proto" "$_port" "$ip"; then
+    if [ "$FORCE" = "1" ] || has_rule "$_proto" "$_port" "$ip"; then
         log "Forbid access from ${_ip} to port ${_port} on ${_proto}"
-        info "${_ip}:${_port} ($proto) $($UFW delete allow proto "${_proto}" from "${_ip}" to any port "${_port}")"
+        info "${_ip}:${_port}/$proto: $($UFW delete allow proto "${_proto}" from "${_ip}" to any port "${_port}")"
     else
         log "rule already exists. nothing to do."
     fi
@@ -160,36 +170,47 @@ resolv_v4() {
     printf %s\\n "$_host"
 }
 
+# Read configuration file and perform relevant ufw allow/delete allow rules.
 sed -E '/^[[:space:]]*$/d' "${HOSTS_ALLOW}" | sed -E '/^[[:space:]]*#/d' | while IFS= read -r line
 do
+    # Extract protocol (tcp/udp), port (range) and host from line
     proto=$(printf %s\\n "${line}" | cut -d: -f1)
     port=$(printf %s\\n "${line}" | cut -d: -f2 | sed 's/-/:/g')
     host=$(printf %s\\n "${line}" | cut -d: -f3)
 
+    # extract old IP address from cache, if any
     old_ip=
     if [ -f "${IPS_ALLOW}" ]; then
       old_ip=$(grep "${host}" "${IPS_ALLOW}" | cut -d: -f2)
     fi
 
+    # Resolve hostname to its current IP address
     ip=$(resolv_v4 "$host")
+
+    # When the IP is lost, delete the rule. When the IP has changed, delete the
+    # old rule and create a new one.
     if [ -z "${ip}" ]; then
         if [ -n "${old_ip}" ]; then
             delete_rule "$proto" "$port" "$old_ip"
         fi
         warn "Failed to resolve the ip address of ${host}."
     else
-        if [ -n "${old_ip}" ] && [ "${ip}" != "${old_ip}" ]; then
+        if { [ -n "${old_ip}" ] && [ "${ip}" != "${old_ip}" ]; } || [ "$FORCE" = "1" ]; then
             delete_rule "$proto" "$port" "$old_ip"
         fi
         add_rule "$proto" "$port" "$ip"
     fi
 
-    if [ -f "${IPS_ALLOW}" ]; then
-        sed -i.bak "/^${host}:.*/d" "${IPS_ALLOW}"
-    fi
+    # When the IP has changed, including been removed, update the cache for next
+    # time.
+    if [ "${ip}" != "${old_ip}" ]; then
+        if [ -f "${IPS_ALLOW}" ]; then
+            sed -i.bak "/^${host}:.*/d" "${IPS_ALLOW}"
+        fi
 
-    if [ -n "$ip" ]; then
-        printf "%s:%s\n" "${host}" "${ip}" >> "${IPS_ALLOW}"
+        if [ -n "$ip" ]; then
+            printf "%s:%s\n" "${host}" "${ip}" >> "${IPS_ALLOW}"
+        fi
     fi
     sleep "$RESPIT"
 done
