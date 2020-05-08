@@ -1,17 +1,13 @@
-#! /usr/bin/env bash
-set -e
-set -o pipefail
+#! /usr/bin/env sh
+
+set -eu
 
 iptables --flush
-rules=($(iptables --list | grep Chain | grep -Eo "ufw-[a-z-]+" | xargs echo))
-for i in "${rules[@]}"
-do
-  iptables --delete-chain $i
+for i in $(iptables --list | grep '^Chain' | grep -Eo "ufw-[a-z-]+" | xargs echo); do
+  iptables --delete-chain "$i"
 done
 
 ip6tables --flush
-rules6=($(ip6tables --list | grep Chain | grep -Eo "ufw6-[a-z-]+" | xargs echo))
-for i in "${rules6[@]}"
-do
-  ip6tables --delete-chain $i
+for i in $(ip6tables --list | grep '^Chain' | grep -Eo "ufw6-[a-z-]+" | xargs echo); do
+  ip6tables --delete-chain "$i"
 done
