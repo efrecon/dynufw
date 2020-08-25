@@ -148,9 +148,9 @@ resolv_v4() {
     _rx_ip='[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}'
     if [ -z "$_host" ] && command -v dig 2>1 >/dev/null; then
         if [ -n "$SERVER" ]; then
-            _host=$(dig +short "$1" | grep -Eo -e "$_rx_ip" | tail -n 1)
-        else
             _host=$(dig +short @"$SERVER" "$1" | grep -Eo -e "$_rx_ip" | tail -n 1)
+        else
+            _host=$(dig +short "$1" | grep -Eo -e "$_rx_ip" | tail -n 1)
         fi
     fi
     if [ -z "$_host" ] && command -v getent 2>1 >/dev/null; then
