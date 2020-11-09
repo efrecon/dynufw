@@ -34,7 +34,7 @@ Usage:
     -s | --server        Server to use for DNS resolutions, whenever possible
     --ufw                Location of the ufw binary, defaults to ufw
     --respit             Time to wait between rule changes, defaults to 1
-    --quiet              Be almost silence, only warnings.
+    --quiet              Be almost silent, only warnings.
     -v | --verbose       Be more verbose
     -h | --help          Print this help and exit.
 USAGE
@@ -192,14 +192,16 @@ do
 
     # When the IP is lost, delete the rule. When the IP has changed, delete the
     # old rule and create a new one.
-    if [ -z "${ip}" ]; then
-        if [ -n "${old_ip}" ]; then
+    if [ -z "$ip" ]; then
+        if [ -n "$old_ip" ]; then
             delete_rule "$proto" "$port" "$old_ip"
         fi
         warn "Failed to resolve the ip address of $host."
     else
-        if { [ -n "$old_ip" ] && [ "$ip" != "$old_ip" ]; } || [ "$FORCE" = "1" ]; then
-            delete_rule "$proto" "$port" "$old_ip"
+        if [ -n "$old_ip" ]; then
+            if [ "$ip" != "$old_ip" ] || [ "$FORCE" = "1" ]; then
+                delete_rule "$proto" "$port" "$old_ip"
+            fi
         fi
         add_rule "$proto" "$port" "$ip" "$host"
     fi
