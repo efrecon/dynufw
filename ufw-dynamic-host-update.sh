@@ -6,7 +6,7 @@ VERBOSE=0
 QUIET=0
 SERVER=${SERVER:-}
 HOSTS_ALLOW=${HOSTS_ALLOW:-/etc/ufw-dynamic-hosts.allow}
-IPS_ALLOW=${IPS_ALLOW:-/var/run/ufw-dynamic-ips.allow}
+IPS_ALLOW=${IPS_ALLOW:-}
 RESPIT=${RESPIT:-1}
 UFW=ufw
 FORCE=0;
@@ -34,7 +34,7 @@ Usage:
     -s | --server        Server to use for DNS resolutions, whenever possible
     --ufw                Location of the ufw binary, defaults to ufw
     --respit             Time to wait between rule changes, defaults to 1
-    --quiet              Be almost silence, only warnings.
+    --quiet              Be almost silent, only warnings.
     -v | --verbose       Be more verbose
     -h | --help          Print this help and exit.
 USAGE
@@ -123,9 +123,10 @@ add_rule() {
     _proto=$1
     _port=$2
     _ip=$3
+    _host=${4:-}
     if [ "$FORCE" = "1" ] || ! has_rule "$_proto" "$_port" "$ip"; then
         log "Allow access from ${_ip} to port ${_port} on ${_proto}"
-        info "${_ip}:${_port}/$proto: $($UFW allow proto "${_proto}" from "${_ip}" to any port "${_port}")"
+        info "${_ip}:${_port}/$proto: $($UFW allow proto "${_proto}" from "${_ip}" to any port "${_port}" comment "$_host")"
     else
         log "rule already exists. nothing to do."
     fi
@@ -146,24 +147,24 @@ delete_rule() {
 resolv_v4() {
     _host=
     _rx_ip='[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}'
-    if [ -z "$_host" ] && command -v dig 2>1 >/dev/null; then
+    if [ -z "$_host" ] && command -v dig >/dev/null 2>&1; then
         if [ -n "$SERVER" ]; then
             _host=$(dig +short @"$SERVER" "$1" | grep -Eo -e "$_rx_ip" | tail -n 1)
         else
             _host=$(dig +short "$1" | grep -Eo -e "$_rx_ip" | tail -n 1)
         fi
     fi
-    if [ -z "$_host" ] && command -v getent 2>1 >/dev/null; then
+    if [ -z "$_host" ] && command -v getent >/dev/null 2>&1; then
         _host=$({ getent ahostsv4 "$1" 2>/dev/null || true; } | grep -Eo -e "$_rx_ip" | head -n 1)
     fi
-    if [ -z "$_host" ] && command -v nslookup 2>1 >/dev/null; then
+    if [ -z "$_host" ] && command -v nslookup >/dev/null 2>&1; then
         if [ -n "$SERVER" ]; then
             _host=$({ nslookup "$1" "$SERVER" 2>/dev/null || true; } | grep -Eo -e "$_rx_ip" | head -n 1)
         else
             _host=$({ nslookup "$1" 2>/dev/null || true; } | grep -Eo -e "$_rx_ip" | head -n 1)
         fi
     fi
-    if [ -z "$_host" ] && command -v host 2>1 >/dev/null; then
+    if [ -z "$_host" ] && command -v host >/dev/null 2>&1; then
         _host=$(host "$1" | grep -Eo -e "$_rx_ip" | head -n 1)
     fi
     log "$1 is at: $_host"
@@ -180,8 +181,10 @@ do
 
     # extract old IP address from cache, if any
     old_ip=
-    if [ -f "${IPS_ALLOW}" ]; then
-      old_ip=$(grep "${host}" "${IPS_ALLOW}" | cut -d: -f2)
+    if [ -z "$IPS_ALLOW" ]; then
+        old_ip=$($UFW status | grep "$host" | grep "${port}/${proto}" | awk '{print $3}')
+    elif [ -f "${IPS_ALLOW}" ]; then
+        old_ip=$(grep "${host}" "${IPS_ALLOW}" | cut -d: -f2)
     fi
 
     # Resolve hostname to its current IP address
@@ -189,21 +192,23 @@ do
 
     # When the IP is lost, delete the rule. When the IP has changed, delete the
     # old rule and create a new one.
-    if [ -z "${ip}" ]; then
-        if [ -n "${old_ip}" ]; then
+    if [ -z "$ip" ]; then
+        if [ -n "$old_ip" ]; then
             delete_rule "$proto" "$port" "$old_ip"
         fi
-        warn "Failed to resolve the ip address of ${host}."
+        warn "Failed to resolve the ip address of $host."
     else
-        if { [ -n "${old_ip}" ] && [ "${ip}" != "${old_ip}" ]; } || [ "$FORCE" = "1" ]; then
-            delete_rule "$proto" "$port" "$old_ip"
+        if [ -n "$old_ip" ]; then
+            if [ "$ip" != "$old_ip" ] || [ "$FORCE" = "1" ]; then
+                delete_rule "$proto" "$port" "$old_ip"
+            fi
         fi
-        add_rule "$proto" "$port" "$ip"
+        add_rule "$proto" "$port" "$ip" "$host"
     fi
 
     # When the IP has changed, including been removed, update the cache for next
     # time.
-    if [ "${ip}" != "${old_ip}" ]; then
+    if [ -n "$IPS_ALLOW" ] && [ "${ip}" != "${old_ip}" ]; then
         if [ -f "${IPS_ALLOW}" ]; then
             sed -i.bak "/^${host}:.*/d" "${IPS_ALLOW}"
         fi
