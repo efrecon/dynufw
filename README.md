@@ -14,3 +14,30 @@ based firewall. These are
 Some of these scripts originate from elsewhere and have been modified across
 time to suit my own needs. I have lost track of their origin and I hope their
 original authors allow their republication here. Please raise an issue!
+
+## Developer Notes
+
+You can use Docker to exercise and test these scripts without touching your host
+system. The following command, run from this directory, should make the scripts
+available at `/dynufw`:
+
+```shell
+docker run \
+    -it --rm \
+    -v $(pwd):/dynufw \
+    --cap-add=NET_ADMIN --cap-add=NET_RAW \
+    ubuntu
+```
+
+Then, from within the container, install `ufw` using:
+
+```shell
+apt update && apt install -y ufw
+```
+
+Finally, manually disable IPv6, by setting the value of `IPV6` to `no` in
+`/etc/default/ufw`.
+
+```shell
+sed -e 's/IPV6=.*/IPV6=no/g'  -i  /etc/default/ufw
+```
