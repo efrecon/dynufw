@@ -2,13 +2,39 @@
 
 set -eu
 
+# Set this to 1 for extra verbosity.
 VERBOSE=0
+
+# Set this to 1 for extra silence
 QUIET=0
+
+# DNS server to resolve names at. When none specified (the default), the default
+# server on the system will be used.
 SERVER=${SERVER:-}
+
+# Path to the hosts file, usually located at /etc/hosts. When empty (the
+# default), the local hosts file will not be used, leaving it to system settings
+# and order. In practice, unless for debugging purposes, you should keep this to
+# an empty string.
+HOSTS_PATH=${HOSTS_PATH:-}
+
+# Path to the allow/deny rule file
 HOSTS_ALLOW=${HOSTS_ALLOW:-/etc/ufw-dynamic-hosts.allow}
+
+# Path to a file that will contain a cache of the IP corresponding to hostnames.
+# When empty, the default, ufw comments will be used for that information. This
+# avoids polluting the system with an extra file and ensure a single point of
+# truth
 IPS_ALLOW=${IPS_ALLOW:-}
+
+# Number of seconds to wait after each add/removal operation. This is to let
+# ufw rest between calls.
 RESPIT=${RESPIT:-1}
+
+# Path to the ufw binary, the default is to look for it in the $PATH.
 UFW=ufw
+
+# Set this to force recreation of ufw rules.
 FORCE=0;
 
 # Dynamic vars
@@ -25,15 +51,18 @@ Description:
   $cmdname will update ufw rules based for dynamically allocated addresses.
 
 Usage:
-  $cmdname [-option arg --long-option(=)arg] [--] command
+  $cmdname [-option arg --long-option(=)arg]
 
   where all dash-led options are as follows (long options can be followed by
   an equal sign):
     -c | --config        Config file with : separated lines
-    --cache              Where to store the IP cache
+    --cache              Where to store the IP cache (empty is a good default!)
     -s | --server        Server to use for DNS resolutions, whenever possible
-    --ufw                Location of the ufw binary, defaults to ufw
+    --hosts              Path to the hosts file (/etc/hosts), used first for
+                         resolution (this is mainly for debugging purposes)
+    --ufw                Location of the ufw binary, defaults to ufw from PATH
     --respit             Time to wait between rule changes, defaults to 1
+    --force              Force recreation of rules
     --quiet              Be almost silent, only warnings.
     -v | --verbose       Be more verbose
     -h | --help          Print this help and exit.
@@ -53,6 +82,11 @@ while [ $# -gt 0 ]; do
             HOSTS_ALLOW=$2; shift 2;;
         --config=*)
             HOSTS_ALLOW="${1#*=}"; shift 1;;
+
+        --hosts)
+            HOSTS_PATH=$2; shift 2;;
+        --hosts=*)
+            HOSTS_PATH="${1#*=}"; shift 1;;
 
         --cache)
             IPS_ALLOW=$2; shift 2;;
@@ -124,11 +158,11 @@ add_rule() {
     _port=$2
     _ip=$3
     _host=${4:-}
-    if [ "$FORCE" = "1" ] || ! has_rule "$_proto" "$_port" "$ip"; then
+    if [ "$FORCE" = "1" ] || ! has_rule "$_proto" "$_port" "$_ip"; then
         log "Allow access from ${_ip} to port ${_port} on ${_proto}"
         info "${_ip}:${_port}/$proto: $($UFW allow proto "${_proto}" from "${_ip}" to any port "${_port}" comment "$_host")"
     else
-        log "rule already exists. nothing to do."
+        log "rule ${_ip}:${_port}/$proto already exists. nothing to do."
     fi
 }
 
@@ -136,17 +170,37 @@ delete_rule() {
     _proto=$1
     _port=$2
     _ip=$3
-    if [ "$FORCE" = "1" ] || has_rule "$_proto" "$_port" "$ip"; then
+    _host=${4:-}
+    if [ "$FORCE" = "1" ] || has_rule "$_proto" "$_port" "$_ip"; then
         log "Forbid access from ${_ip} to port ${_port} on ${_proto}"
-        info "${_ip}:${_port}/$proto: $($UFW delete allow proto "${_proto}" from "${_ip}" to any port "${_port}")"
+        info "${_ip}:${_port}/$proto: $($UFW delete allow proto "${_proto}" from "${_ip}" to any port "${_port}" comment "$_host")"
     else
-        log "rule already exists. nothing to do."
+        log "rule ${_ip}:${_port}/$proto already exists. nothing to do."
     fi
+}
+
+localresolv_v4() {
+    _rx_ip='[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}'
+    hline=
+    sed -E '/^[[:space:]]*$/d' "${HOSTS_PATH}" | sed -E '/^[[:space:]]*#/d' | while IFS= read -r hline || [ -n "$hline" ]
+    do
+        _ip=$(printf %s\\n "$hline" | awk '{print $1}')
+
+        if printf %s\\n "$_ip" | grep -Eq "$_rx_ip" \
+            && printf %s\\n "$hline" | grep -Fqw "$1"; then
+            log "Resolved $1 to $_ip using $HOSTS_PATH"
+            printf %s\\n "$_ip"
+            return
+        fi
+    done
 }
 
 resolv_v4() {
     _host=
     _rx_ip='[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}'
+    if [ -z "$_host" ] && [ -n "$HOSTS_PATH" ]; then
+        _host=$(localresolv_v4 "$1" | head -n 1)
+    fi
     if [ -z "$_host" ] && command -v dig >/dev/null 2>&1; then
         if [ -n "$SERVER" ]; then
             _host=$(dig +short @"$SERVER" "$1" | grep -Eo -e "$_rx_ip" | tail -n 1)
@@ -172,7 +226,7 @@ resolv_v4() {
 }
 
 # Read configuration file and perform relevant ufw allow/delete allow rules.
-sed -E '/^[[:space:]]*$/d' "${HOSTS_ALLOW}" | sed -E '/^[[:space:]]*#/d' | while IFS= read -r line
+sed -E '/^[[:space:]]*$/d' "${HOSTS_ALLOW}" | sed -E '/^[[:space:]]*#/d' | while IFS= read -r line || [ -n "$line" ]
 do
     # Extract protocol (tcp/udp), port (range) and host from line
     proto=$(printf %s\\n "${line}" | cut -d: -f1)
