@@ -17,6 +17,8 @@ original authors allow their republication here. Please raise an issue!
 
 ## Developer Notes
 
+### Environment Setup
+
 You can use Docker to exercise and test these scripts without touching your host
 system. The following command, run from this directory, should make the scripts
 available at `/dynufw`:
@@ -41,3 +43,12 @@ Finally, manually disable IPv6, by setting the value of `IPV6` to `no` in
 ```shell
 sed -e 's/IPV6=.*/IPV6=no/g'  -i  /etc/default/ufw
 ```
+
+### Manual Testing
+
+If you want to test host migration/removal, the easiest is to make uses of the
+`--hosts` option. Provided you have a Docker environment setup as described
+above, you should be able to simulate hosts migration by editing the file
+pointed at by the `--hosts` option and verify that the main script
+[ufw-dynamic-host-update.sh](./ufw-dynamic-host-update.sh) performs as it
+should.
